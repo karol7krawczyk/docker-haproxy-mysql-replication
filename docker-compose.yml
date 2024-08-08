@@ -1,0 +1,89 @@
+services:
+  mysql1:
+    image: mysql:8.0
+    container_name: mysql1
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: testdb
+    volumes:
+      # - ./docker/mysql1/data:/var/lib/mysql
+      - ./docker/mysql1/my.cnf:/etc/mysql/my.cnf
+      - ./docker/mysql1/init:/docker-entrypoint-initdb.d
+      - ./logs/mysql1:/var/log/mysql
+    networks:
+      - mysql_net
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "--user=root",
+          "--password=rootpassword"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  mysql2:
+    image: mysql:8.0
+    container_name: mysql2
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: testdb
+    volumes:
+      # - ./docker/mysql2/data:/var/lib/mysql
+      - ./docker/mysql2/my.cnf:/etc/mysql/my.cnf
+      - ./docker/mysql2/init:/docker-entrypoint-initdb.d
+      - ./logs/mysql2:/var/log/mysql
+    networks:
+      - mysql_net
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "--user=root",
+          "--password=rootpassword"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  haproxy:
+    image: haproxy:latest
+    container_name: haproxy
+    volumes:
+      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+    command: haproxy -f /usr/local/etc/haproxy/haproxy.cfg
+    networks:
+      - mysql_net
+    depends_on:
+      mysql1:
+        condition: service_healthy
+      mysql2:
+        condition: service_healthy
+
+  replication:
+    image: mysql:8.0
+    container_name: replication
+    networks:
+      - mysql_net
+    depends_on:
+      mysql1:
+        condition: service_healthy
+      mysql2:
+        condition: service_healthy
+    command: >
+      /bin/sh -c " sleep 15 && mysql -h mysql1 -u root -proot -e 'CHANGE MASTER TO MASTER_HOST=\"mysql2\", MASTER_USER=\"repl\", MASTER_PASSWORD=\"repl_password\", MASTER_AUTO_POSITION=1; START SLAVE;' && mysql -h mysql2 -u root -proot -e 'CHANGE MASTER TO MASTER_HOST=\"mysql1\", MASTER_USER=\"repl\", MASTER_PASSWORD=\"repl_password\", MASTER_AUTO_POSITION=1; START SLAVE;' "
+
+networks:
+  mysql_net:
+    driver: bridge
